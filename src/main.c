@@ -16,10 +16,10 @@
 #include <sys/wait.h>
 
 
-int main(void)
+int main(int argc, char *argv[])
 {
 	pid_t child_pid;
-	char* arg_list[] = { "ls","-l", NULL };
+	char* arg_list[] = { "ls" , "-la" , NULL , NULL, NULL, NULL, NULL, NULL};
 
 	/* Arrancamos */
 	printf("Arrancamos por hacer el Ejecutor de Comandos\n");
@@ -28,7 +28,7 @@ int main(void)
 	if(child_pid == 0)
 	{
 		/* Proceso hijo */
-		execvp("ls", arg_list);
+		execvp(arg_list[0], arg_list);
 		return 0;
 	}
 	else
