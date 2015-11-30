@@ -19,6 +19,7 @@
 int main(void)
 {
 	pid_t child_pid;
+	char* arg_list[] = { "ls","-l", NULL };
 
 	/* Arrancamos */
 	printf("Arrancamos por hacer el Ejecutor de Comandos\n");
@@ -27,13 +28,14 @@ int main(void)
 	if(child_pid == 0)
 	{
 		/* Proceso hijo */
-		sleep(10);
+		execvp("ls", arg_list);
 		return 0;
 	}
 	else
 	{
 		/*Proceso Padre */
 		waitpid(child_pid,NULL,0);
+		printf("Termino mi Hijo: %d\n",child_pid);
 		return 0;
 	}
 }
