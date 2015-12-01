@@ -9,7 +9,7 @@ OBJETOS = main.o
 all : Server_Con1
 
 Server_Con1 : $(OBJETOS)
-	$(CC) $(CFLAGS) $(OBJETOS) -o $@ -lm
+	$(CC) $(CFLAGS) $(OBJETOS) -o $@
 	@echo 'Creación exitosa'
 
 
