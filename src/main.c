@@ -11,13 +11,15 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#define MAX_CMD	20
+#define MAX_CMD		20
+#define BUFF_SIZE	100
 
 int main(int argc, char *argv[])
 {
@@ -32,10 +34,10 @@ int main(int argc, char *argv[])
 	int		ctrl		=	0;
 
 	/*	Variables de Datos	*/
-//	char* arg_list[MAX_CMD] = {NULL};
+
 
 	/* Inicio del Programa */
-	printf("Inicializando...\n");
+	printf("Inicializando... ");
 
 	/*	Configuración del Socket	*/
 	sock_srv = socket(PF_INET,SOCK_STREAM,0);
@@ -48,6 +50,8 @@ int main(int argc, char *argv[])
 	server_sock.sin_family		= AF_INET;
 	server_sock.sin_port		= htons(port);
 	server_sock.sin_addr.s_addr	= 0;
+
+	printf("Listo\n");
 
 	ctrl = bind(sock_srv, (struct sockaddr *)&server_sock, sizeof(struct sockaddr_in));
 	if(ctrl < 0)	/*	Error de bind	*/
@@ -65,6 +69,8 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	printf(">Esperando conexiones...\n\n");
+
 	child_pid = fork();
 	if(child_pid == 0)
 	{	/* Proceso hijo */
@@ -72,23 +78,49 @@ int main(int argc, char *argv[])
 		unsigned int client_len = sizeof(struct sockaddr_in);
 		char clientIP[INET6_ADDRSTRLEN];
 
+		/*	Comandos a ejecutar	*/
+		char* argls[MAX_CMD] = {"","","","","","","",""};
+
 		nuevofd = accept(sock_srv,(struct sockaddr *)&client_info, &client_len);
+		if(nuevofd<0)	/*	Error de Acceptar	*/
+		{
+			printf(">>ERROR: Fallo al aceptar la conexión.\n\n");
+			close(sock_srv);
+			return -1;
+		}
+
 		close(sock_srv);
 
 		printf("Nueva conexión desde %s asignada a socket %d\n"
 				,inet_ntop(AF_INET,&(client_info.sin_addr)
 				, clientIP, INET_ADDRSTRLEN),nuevofd);
 
-		write(nuevofd,"Hola!",6);
-		close(nuevofd);
+		printf("Obteniendo comandos... ");
+		char buff[BUFF_SIZE] = "";
 
-		//execvp(arg_list[0], arg_list);
+		ctrl = recv(nuevofd,buff,100,0);
+		printf("%s\n", buff);
+
+		int i = 0;
+		argls[0] = strtok(buff, " ");
+		while (argls[i] != NULL)
+		{
+		    i++;
+		    argls[i] = strtok (NULL, " \n");
+		}
+
+		write(nuevofd,"Listo",(strlen("Listo")+1));
+
+		printf("Comandos decodificados:\n");
+		sleep(1);
+		close(nuevofd);
+		execvp(argls[0], argls);
 		return 0;
 	}
 	else
 	{	/*Proceso Padre */
 		waitpid(child_pid,NULL,0);
-		printf("Termino mi Hijo: %d\n",child_pid);
+		printf(">Termino el proceso hijo: %d\n",child_pid);
 
 		close(sock_srv);
 		return 0;
