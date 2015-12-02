@@ -53,6 +53,9 @@ int main(int argc, char *argv[])
 
 	printf("Listo\n");
 
+	int yes = 1;
+	setsockopt(sock_srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+
 	ctrl = bind(sock_srv, (struct sockaddr *)&server_sock, sizeof(struct sockaddr_in));
 	if(ctrl < 0)	/*	Error de bind	*/
 	{
@@ -69,7 +72,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	printf(">Esperando conexiones...\n\n");
+	printf(">Esperando conexiones...\n");
 
 	child_pid = fork();
 	if(child_pid == 0)
@@ -91,16 +94,17 @@ int main(int argc, char *argv[])
 
 		close(sock_srv);
 
-		printf("Nueva conexión desde %s asignada a socket %d\n"
+		printf("\n  Nueva conexión desde %s asignada a socket %d\n"
 				,inet_ntop(AF_INET,&(client_info.sin_addr)
 				, clientIP, INET_ADDRSTRLEN),nuevofd);
 
-		printf("Obteniendo comandos... ");
+		printf("  Obteniendo comandos... ");
 		char buff[BUFF_SIZE] = "";
 
 		ctrl = recv(nuevofd,buff,100,0);
-		printf("%s\n", buff);
+		printf("%s\n\n", buff);
 
+		/*	Desarmo la cadena obtenido en el comando y sus argumentos.	*/
 		int i = 0;
 		argls[0] = strtok(buff, " ");
 		while (argls[i] != NULL)
@@ -109,19 +113,33 @@ int main(int argc, char *argv[])
 		    argls[i] = strtok (NULL, " \n");
 		}
 
+		/*	Señalo la correcta recepción	*/
 		write(nuevofd,"Listo",(strlen("Listo")+1));
 
-		printf("Comandos decodificados:\n");
-		sleep(1);
-		close(nuevofd);
-		execvp(argls[0], argls);
-		return 0;
+		if(fork()!=0)
+		{	/* Nuevo proceso padre */
+
+
+			wait(NULL);
+			printf("  Ejecución de comando finalizada.\n");
+			//send(nuevofd,"CMD_DONE",8,0);
+			close(nuevofd);
+			return 0;
+		}
+		else
+		{
+			close(1);
+			dup(nuevofd);
+
+			execvp(argls[0],argls);
+			return 0;
+		}
 	}
 	else
 	{	/*Proceso Padre */
+		//fflush(0);
 		waitpid(child_pid,NULL,0);
 		printf(">Termino el proceso hijo: %d\n",child_pid);
-
 		close(sock_srv);
 		return 0;
 	}
