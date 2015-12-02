@@ -116,20 +116,137 @@ int main(int argc, char *argv[])
 		/*	Señalo la correcta recepción	*/
 		write(nuevofd,"Listo",(strlen("Listo")+1));
 
-		if(fork()!=0)
-		{	/* Nuevo proceso padre */
+		/*	Seteo de pipes	*/
+
+		int stdin_p[2];
+		int stdout_p[2];
+		int stderr_p[2];
+
+		ctrl = pipe(stdin_p);
+		if(ctrl == -1)	/*	Error de pipe	*/
+			{
+				printf(">> ERROR: Error al configurar las pipes");
+				close(nuevofd);
+				return -1;
+			}
+		ctrl = pipe(stdout_p);
+		if(ctrl == -1)		/*	Error de pipe	*/
+		{
+			printf(">> ERROR: Error al configurar las pipes");
+			close(nuevofd);
+			return -1;
+		}
+		ctrl = pipe(stderr_p);
+		if(ctrl == -1)		/*	Error de pipe	*/
+		{
+			printf(">> ERROR: Error al configurar las pipes");
+			close(nuevofd);
+			return -1;
+		}
 
 
-			wait(NULL);
+		child_pid = fork();
+		if(child_pid	!=0	)
+		{
+			close(stdout_p[1]);
+			close(stderr_p[1]);
+			close(stdin_p[0]);
+
+			char buff[1024] = "";
+			/*	Configuro el select	*/
+			fd_set readfds;
+			FD_ZERO(&readfds);
+			FD_SET(nuevofd, &readfds);
+			FD_SET(stdout_p[0], &readfds);
+			FD_SET(stderr_p[0], &readfds);
+
+//			select(11,&readfds,NULL,NULL,NULL);
+//			if(FD_ISSET(nuevofd,&readfds))
+//			{
+//				ctrl = read(nuevofd, buff, sizeof buff);
+//				printf("Llego algo de nuevo\n");
+//				if(ctrl == 0)
+//				{
+//					printf("  Conexión con cliente cerrada.\n");
+//				}
+//				else if(ctrl > 0)
+//				{
+//				write(stdin_p[1],buff,ctrl);
+//				printf("mande %s a stdin[1]\n",buff);
+//				}
+//			}
+//			wait(NULL);
+//			close(nuevofd);
+//			return 0;
+
+			while( waitpid(-1,NULL,WNOHANG) != child_pid )
+			{
+				printf("<select>\n");
+				ctrl = select(11,&readfds,NULL,NULL,NULL);
+				if(ctrl == -1)
+				{
+					printf("ERROR: En el select.\n");
+				}
+				printf("</select>\n");
+				if(FD_ISSET(stdout_p[0],&readfds))
+				{
+					printf("out: ");
+					ctrl = read(stdout_p[0],buff,sizeof buff);
+					if (ctrl != 0)
+					{
+						write(nuevofd,buff,ctrl);
+						printf("%s",buff);
+						printf("\n");
+					}
+				}
+				if(FD_ISSET(stderr_p[0],&readfds))
+				{
+					ctrl = read(stderr_p[0],buff,sizeof buff);
+					if (ctrl != 0)
+						{write(nuevofd,buff,ctrl);
+						printf("error ");
+						printf("%s",buff);
+						printf("\n");}
+				}
+				if(FD_ISSET(nuevofd,&readfds))
+				{
+					ctrl = read(nuevofd, buff, sizeof buff);
+					printf("cliente:");
+					if(ctrl == 0)
+					{
+						printf("  Conexión con cliente cerrada.\n");
+						break;
+					}
+					else{
+					write(stdin_p[1],buff,ctrl);
+					printf("%.*s \n",ctrl,buff);
+					}
+				}
+
+			}
+			if( strcmp(buff,"") ==0 )
+			{
+				write(nuevofd,"ERROR: Comando incorrecto.\n",27);
+			}
 			printf("  Ejecución de comando finalizada.\n");
-			//send(nuevofd,"CMD_DONE",8,0);
+			close(stdin_p[1]);
+			close(stdout_p[0]);
+			close(stderr_p[0]);
 			close(nuevofd);
 			return 0;
 		}
 		else
-		{
-			close(1);
-			dup(nuevofd);
+		{	/*	Hijo Comando	*/
+			close(stdin_p[1]);
+			close(stdout_p[0]);
+			close(stderr_p[0]);
+			close(nuevofd);
+
+			dup2(stdin_p[0],STDIN_FILENO);
+			//dup2(stdout_p[1],STDOUT_FILENO);
+			dup2(stderr_p[1],STDERR_FILENO);
+			//fputs("Este es el hijo del hijo\n",stderr);
+			//printf("Listo\n");
 
 			execvp(argls[0],argls);
 			return 0;
@@ -137,9 +254,8 @@ int main(int argc, char *argv[])
 	}
 	else
 	{	/*Proceso Padre */
-		//fflush(0);
 		waitpid(child_pid,NULL,0);
-		printf(">Termino el proceso hijo: %d\n",child_pid);
+		printf("> Termino el proceso hijo: %d\n",child_pid);
 		close(sock_srv);
 		return 0;
 	}
