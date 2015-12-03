@@ -2,7 +2,7 @@
 
 RM:= rm
 CC:= gcc
-CFLAGS := -Wall
+CFLAGS := -Wall -g
 
 OBJETOS = main.o
 
