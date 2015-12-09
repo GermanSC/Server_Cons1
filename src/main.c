@@ -26,7 +26,8 @@
 int print_help(char * str)
 {
 printf("\nUso: %s [opciones]\n\n", str);
-	printf("  -d	Modo daemon.\n\n");
+	printf("  -d	Modo daemon.\n"
+		   "  -v	Verbose.\n\n");
 	printf( "El programa servidor atiende conexiones en el puerto TCP 15001 "
 			"esperando conexiones de procesos clientes. El servidor puede "
 			"ejecutarse en modo normal ­en el cual informa a través de la"
@@ -65,8 +66,9 @@ int main(int argc, char *argv[])
 	/*	Configuracióon de opciones	*/
 
 	int opt_sig;
-		const char* const opc_cort = "hd";
+		const char* const opc_cort = "hdv";
 		int esDeamon = 0;
+		int verb 	 = 0;
 
 		do
 		{
@@ -80,6 +82,9 @@ int main(int argc, char *argv[])
 					break;
 				case 'd':
 					esDeamon = 1;
+					break;
+				case 'v':
+					verb = 1;
 					break;
 				case '?':
 					print_help(argv[0]);
@@ -243,13 +248,16 @@ int main(int argc, char *argv[])
 
 				if(FD_ISSET(stdout_p[0],&readfds))
 				{
-					print_Donde("out: ", esDeamon, LOG_NOTICE);
+					if(verb != 0)
+					{
+						print_Donde("out: ", esDeamon, LOG_NOTICE);
+					}
 					ctrl = read(stdout_p[0],buff,sizeof buff);
 					if (ctrl != 0)
 					{
 						write(nuevofd,buff,ctrl);
 
-						if(!esDeamon)
+						if(!esDeamon && verb)
 						{
 							printf("%.*s\n",ctrl,buff);
 						}
@@ -265,8 +273,11 @@ int main(int argc, char *argv[])
 					if (ctrl != 0)
 						{
 							write(nuevofd,buff,ctrl);
-							print_Donde("err: ",esDeamon, LOG_NOTICE);
-							if(!esDeamon)
+							if(verb != 0)
+							{
+								print_Donde("err: ",esDeamon, LOG_NOTICE);
+							}
+							if(!esDeamon && verb)
 							{
 								printf("%.*s\n",ctrl,buff);
 							}
@@ -279,7 +290,10 @@ int main(int argc, char *argv[])
 				if(FD_ISSET(nuevofd,&readfds))
 				{
 					ctrl = read(nuevofd, buff, sizeof buff);
-					print_Donde("cliente:", esDeamon, LOG_NOTICE);
+					if(verb != 0)
+					{
+						print_Donde("cliente:", esDeamon, LOG_NOTICE);
+					}
 					if(ctrl == 0)
 					{
 						print_Donde("  Conexión con cliente cerrada.\n",esDeamon, LOG_NOTICE);
@@ -289,7 +303,7 @@ int main(int argc, char *argv[])
 					{
 						write(stdin_p[1],buff,ctrl);
 
-						if(!esDeamon)
+						if(!esDeamon && verb)
 						{
 							printf("%.*s\n",ctrl,buff);
 						}
