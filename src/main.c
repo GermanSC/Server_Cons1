@@ -9,6 +9,7 @@
  ============================================================================
  */
 
+#include <stdarg.h>
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,40 +48,21 @@ int printHelp(char * str)
 	return 0;
 }
 
-//void print_Donde(int D_Flag, int PRI, const char *formatString, ...)
-//{
-//	static char buffer[100];
-//
-//	va_list arguments;
-//
-//	va_start(arguments, formatString);
-//
-//	vsnprintf(buffer, 100, formatString, arguments);
-//	buffer[99] = 0;
-//
-//
-//	if (D_Flag)
-//	{
-//		syslog(PRI,"%s", buffer);
-//	}
-//	else
-//	{
-//		printf("%s", buffer);
-//	}
-//
-//	va_end(arguments);
-//}
-
-void printDonde(char * str, int D_Flag, int PRI)
+void print_Donde(int dflag, int prioridad, const char *formatString, ...)
 {
-	if (D_Flag != 0)
+	va_list arguments;
+	va_start(arguments, formatString);
+
+	if (dflag)
 	{
-		syslog(PRI, "%s", str);
-
-	} else {
-
-		printf("%s", str );
+		vsyslog(prioridad, formatString, arguments);
 	}
+	else
+	{
+		vprintf(formatString, arguments);
+	}
+
+	va_end(arguments);
 }
 
 int socketSetUp(int port){
@@ -198,22 +180,15 @@ int redirect(int input, int output, char * in_string)
 	int temp = 0;
 	static char buff[1024] = "";
 
-	if( verb != 0 )
-	{
-//		printDonde("%s ",in_string, esDeamon, LOG_NOTICE);
-	}
 	temp = read( input, buff, sizeof(buff) );
 	if (temp != 0)
 	{
 		write(output, buff, temp);
 
-		if( (esDeamon == 0) && (verb == 1) )
+		if( verb == 1 )
 		{
-			printf( "%.*s\n", temp, buff );
-
-		} else {
-
-			syslog(LOG_NOTICE, "%.*s\n", temp, buff);
+			print_Donde(esDeamon, LOG_NOTICE, "%s ",in_string);
+			print_Donde(esDeamon, LOG_NOTICE, "%.*s\n", temp, buff );
 		}
 	}
 
@@ -288,7 +263,7 @@ int main(int argc, char *argv[])
 
 	/* Inicio del Programa */
 
-	printDonde(">Esperando conexiones...\n", esDeamon, LOG_NOTICE);
+	print_Donde(esDeamon, LOG_NOTICE, ">Esperando conexiones...\n");
 
 	sock_srv = socketSetUp(15001);
 	if(sock_srv < 0)
@@ -320,10 +295,10 @@ int main(int argc, char *argv[])
 				return -1;
 			}
 
-			printDonde("  Obteniendo comandos... ", esDeamon, LOG_NOTICE);
+			print_Donde(esDeamon, LOG_NOTICE, "  Obteniendo comandos... ");
 
 			ctrl = recv(nuevofd, buff, 100, 0);
-			printf("%s\n\n", buff);
+			print_Donde(esDeamon, LOG_NOTICE, "%s\n\n", buff);
 
 			/*	Desarmo la cadena obtenido en el comando y sus argumentos.	*/
 
@@ -382,19 +357,19 @@ int main(int argc, char *argv[])
 						ctrl = redirect(nuevofd,stdin_p[1],"cliente: ");
 						if(ctrl == 0)
 						{
-							printDonde("  Conexión con cliente cerrada.\n", esDeamon, LOG_NOTICE);
+							print_Donde(esDeamon, LOG_NOTICE, "  Conexión con cliente cerrada.\n");
 							break;
 						}
 					}
 					if (ctrl == -5)
 					{
 						write(nuevofd, "ERROR: Comando inválido.\n", 25);
-						printDonde("  ERROR: Comando inválido.\n", esDeamon, LOG_NOTICE);
+						print_Donde(esDeamon, LOG_NOTICE, "  ERROR: Comando inválido.\n");
 					}
 
 				}
 
-				printDonde("  Ejecución de comando finalizada.\n", esDeamon, LOG_NOTICE);
+				print_Donde(esDeamon, LOG_NOTICE, "  Ejecución de comando finalizada.\n");
 				close(stdin_p[1]);
 				close(stdout_p[0]);
 				close(stderr_p[0]);
@@ -412,7 +387,7 @@ int main(int argc, char *argv[])
 		} else {
 			/*Proceso Padre */
 			waitpid(child_pid, NULL, 0);
-			printDonde(">Esperando proximo comando.\n", esDeamon, LOG_NOTICE);
+			print_Donde(esDeamon, LOG_NOTICE, ">Esperando proximo comando.\n");
 		}
 	}
 	return 0;
