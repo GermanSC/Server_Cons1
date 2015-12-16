@@ -19,6 +19,7 @@
 #include <syslog.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 #define MAX_CMD		20
@@ -26,10 +27,6 @@
 
 int esDeamon = 0;
 int verb = 0;
-
-/*	TODO
- * Arreglar Deamon.
- */
 
 int printHelp(char * str)
 {
@@ -196,12 +193,24 @@ int redirect(int input, int output, char * in_string)
 	return temp;
 }
 
+void deamonSetUp(int fd1, int fd2, int fd3)
+{
+	setsid();
+	chdir("/");
+	umask(0);
+
+	close(fd1);
+	close(fd2);
+	close(fd3);
+}
+
 int main(int argc, char *argv[])
 {
 	/*	Variables de Conexion	*/
 	int sock_srv, nuevofd;
 
 	/*	Variables de control	*/
+	pid_t d_pid		=	0;
 	pid_t child_pid	=	0;
 	int ctrl		=	0;
 	int tmp_i		=	0;
@@ -252,9 +261,16 @@ int main(int argc, char *argv[])
 		}
 	} while (opt_sig != -1);
 
-	/*	Configuración del Log	*/
+	/*	Configuración del Deamon	*/
 	if(esDeamon)
 	{
+		d_pid = fork();
+		if(d_pid > 0)
+		{
+			return 0;
+		}
+
+		deamonSetUp(STDIN_FILENO,STDOUT_FILENO,STDERR_FILENO);
 		openlog("RMT_CMD_Server", LOG_PID, LOG_USER);
 	}
 
@@ -288,7 +304,7 @@ int main(int argc, char *argv[])
 			close(sock_srv);
 			if (nuevofd < 0)	/*	Error de Accept	*/
 			{
-				printf("Error al aceptar la conexion.\n");
+				print_Donde(esDeamon, LOG_ERR, "Error al aceptar la conexion.\n");
 				return -1;
 			}
 
