@@ -147,6 +147,45 @@ int acceptConnection(int temp_srv){
 	return temp_sock;
 }
 
+int pipeSetUp(int* pipe_in, int* pipe_out,int* pipe_err)
+{
+	int temp = -1;
+
+	temp = pipe(pipe_in);
+	if(temp == -1)	/*	Error de pipe	*/
+	{
+		return -1;
+	}
+
+	temp = pipe(pipe_out);
+
+	if(temp == -1)		/*	Error de pipe	*/
+	{
+		return -1;
+	}
+
+	temp = pipe(pipe_err);
+	if(temp == -1)		/*	Error de pipe	*/
+	{
+		return -1;
+	}
+	return 0;
+}
+
+int runCommand(int* pipe_in, int* pipe_out, int* pipe_err, char ** list)
+{
+	close(pipe_in[1]);
+	close(pipe_out[0]);
+	close(pipe_err[0]);
+
+	dup2(pipe_in[0], STDIN_FILENO);
+	dup2(pipe_out[1], STDOUT_FILENO);
+	dup2(pipe_err[1], STDERR_FILENO);
+
+	execvp(list[0], list);
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	/*	Variables de Conexion	*/
@@ -155,7 +194,7 @@ int main(int argc, char *argv[])
 	/*	Variables de control	*/
 	pid_t child_pid	=	0;
 	int ctrl		=	0;
-	int i			= 	0;
+	int tmp_i		=	0;
 
 	/*	Configuracióon de opciones	*/
 
@@ -203,9 +242,9 @@ int main(int argc, char *argv[])
 		}
 	} while (opt_sig != -1);
 
+	/*	Configuración del Log	*/
 	if(esDeamon)
 	{
-		/*	Configuración del Log	*/
 		openlog("RMT_CMD_Server", LOG_PID, LOG_USER);
 	}
 
@@ -230,12 +269,9 @@ int main(int argc, char *argv[])
 		}
 
 		child_pid = fork();
-
 		if(child_pid == 0)
 		{
 			/*	Primer hijo	*/
-
-			/*	Comandos a ejecutar	*/
 			char * argls[MAX_CMD] = {NULL};
 
 			nuevofd = acceptConnection(sock_srv);
@@ -248,16 +284,16 @@ int main(int argc, char *argv[])
 
 			printDonde("  Obteniendo comandos... ", esDeamon, LOG_NOTICE);
 
-			ctrl = recv(nuevofd,buff,100,0);
+			ctrl = recv(nuevofd, buff, 100, 0);
 			printf("%s\n\n", buff);
 
 			/*	Desarmo la cadena obtenido en el comando y sus argumentos.	*/
 
 			argls[0] = strtok( buff, " ");
-			while ( argls[i] != NULL )
+			while ( argls[tmp_i] != NULL )
 			{
-				i++;
-				argls[i] = strtok( NULL, " \n" );
+				tmp_i++;
+				argls[tmp_i] = strtok( NULL, " \n" );
 			}
 
 			/*	Señalo la correcta recepción	*/
@@ -265,24 +301,7 @@ int main(int argc, char *argv[])
 
 			/*	Seteo de pipes	*/
 
-			ctrl = pipe(stdin_p);
-			if(ctrl == -1)	/*	Error de pipe	*/
-			{
-				printDonde(">> ERROR: Error al configurar las pipes", esDeamon, LOG_ERR);
-				close(nuevofd);
-				return -1;
-			}
-
-			ctrl = pipe(stdout_p);
-
-			if(ctrl == -1)		/*	Error de pipe	*/
-			{
-				printDonde(">> ERROR: Error al configurar las pipes", esDeamon, LOG_ERR);
-				close(nuevofd);
-				return -1;
-			}
-
-			ctrl = pipe(stderr_p);
+			ctrl = pipeSetUp(stdin_p, stdout_p, stderr_p);
 			if(ctrl == -1)		/*	Error de pipe	*/
 			{
 				printDonde(">> ERROR: Error al configurar las pipes", esDeamon, LOG_ERR);
@@ -311,8 +330,9 @@ int main(int argc, char *argv[])
 					FD_SET(nuevofd, &readfds);
 					FD_SET(stdout_p[0], &readfds);
 					FD_SET(stderr_p[0], &readfds);
+
 					ctrl = select( 11, &readfds, NULL, NULL, NULL );
-					if(ctrl == -1)
+					if(ctrl == -1)	/*	Select Error	*/
 					{
 						printDonde("ERROR: En el select.\n", esDeamon, LOG_ERR);
 					}
@@ -400,18 +420,12 @@ int main(int argc, char *argv[])
 				close(nuevofd);
 				return 0;
 
-			} else {	/*	Hijo Comando	*/
+			} else {
+				/*	Hijo Comando	*/
 
-				close(stdin_p[1]);
-				close(stdout_p[0]);
-				close(stderr_p[0]);
 				close(nuevofd);
+				runCommand(stdin_p, stdout_p, stderr_p, argls);
 
-				dup2(stdin_p[0], STDIN_FILENO);
-				dup2(stdout_p[1], STDOUT_FILENO);
-				dup2(stderr_p[1], STDERR_FILENO);
-
-				execvp(argls[0], argls);
 				return 0;
 			}
 
