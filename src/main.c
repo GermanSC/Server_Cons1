@@ -26,8 +26,8 @@
 /*	TODO
  *
  * Arreglar Deamon.
- * Comandos continuos.
  * Multiples conexiones.
+ * Modulizar
  *
  */
 
@@ -81,19 +81,50 @@ void print_Donde(char * str, int D_Flag, int PRI)
 	}
 }
 
+int socketSetUp(int port){
+
+	/*	Variables Generales	*/
+	int temp = -1;
+
+
+	/*	Variables de Conexión	*/
+	int		sock;
+	struct sockaddr_in	server_sock;
+	int yes = 1;
+
+	/*	Configuración del Socket	*/
+	sock = socket(PF_INET, SOCK_STREAM, 0);
+	if(sock == -1)	/*	Error de socket	*/
+	{
+		return -1;
+	}
+
+	server_sock.sin_family		= AF_INET;
+	server_sock.sin_port		= htons(port);
+	server_sock.sin_addr.s_addr	= 0;
+
+
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+
+	temp = bind(sock, (struct sockaddr *)&server_sock, sizeof(struct sockaddr_in));
+	if(temp < 0)	/*	Error de bind	*/
+	{
+		close(sock);
+		return -1;
+	}
+
+	return sock;
+}
+
 int main(int argc, char *argv[])
 {
-	/*	Variables de Conexión	*/
-	int		port		=	15001;
-	int		sock_srv, nuevofd;
-	struct sockaddr_in	server_sock;
-	struct sockaddr_in	client_info;
+	/*	Variables de Conexion	*/
+	int sock_srv, nuevofd;
 
 	/*	Variables de control	*/
-	pid_t 	child_pid	=	0;
-	int		ctrl		=	0;
-	int 	i			= 	0;
-	int		yes			=	1;
+	pid_t child_pid	=	0;
+	int ctrl		=	0;
+	int i			= 	0;
 
 	/*	Configuracióon de opciones	*/
 
@@ -150,39 +181,19 @@ int main(int argc, char *argv[])
 	}
 
 	/* Inicio del Programa */
-	print_Donde("Inicializando... ", esDeamon, LOG_NOTICE);
-
-	/*	Configuración del Socket	*/
-	sock_srv = socket(PF_INET, SOCK_STREAM, 0);
-	if(sock_srv == -1)	/*	Error de socket	*/
-	{
-		print_Donde(">>ERROR: No se pudo abrir el socket.\n\n", esDeamon, LOG_ERR);
-		return -1;
-	}
-
-	server_sock.sin_family		= AF_INET;
-	server_sock.sin_port		= htons(port);
-	server_sock.sin_addr.s_addr	= 0;
-
-	print_Donde("Listo\n", esDeamon, LOG_NOTICE);
-
-	setsockopt(sock_srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-
-	ctrl = bind(sock_srv, (struct sockaddr *)&server_sock, sizeof(struct sockaddr_in));
-
-	if(ctrl < 0)	/*	Error de bind	*/
-	{
-		print_Donde(">>ERROR: No se pudo enlazar el socket.\n\n",esDeamon, LOG_ERR);
-		close(sock_srv);
-		return -1;
-	}
 
 	print_Donde(">Esperando conexiones...\n", esDeamon, LOG_NOTICE);
+
+	sock_srv = socketSetUp(15001);
+	if(sock_srv < 0)
+	{
+		return -1;
+	}
 
 	while(1)
 	{
 
-		ctrl = listen(sock_srv, 1);
+		ctrl = listen(sock_srv, 5);
 
 		if(ctrl < 0)	/*	Error de Listen	*/
 		{
@@ -197,6 +208,7 @@ int main(int argc, char *argv[])
 		{
 			/*	Proceso hijo	*/
 			/*	Acepto al conexión	y cierro el socket de server	*/
+			struct sockaddr_in	client_info;
 			unsigned int client_len = sizeof(struct sockaddr_in);
 			char clientIP[INET6_ADDRSTRLEN];
 
