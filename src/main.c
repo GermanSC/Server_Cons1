@@ -28,10 +28,7 @@ int esDeamon = 0;
 int verb = 0;
 
 /*	TODO
- *
  * Arreglar Deamon.
- * Modulizar
- *
  */
 
 int printHelp(char * str)
@@ -110,7 +107,7 @@ int acceptConnection(int temp_srv){
 	temp_sock = accept(temp_srv, (struct sockaddr *)&client_info, &client_len);
 	if(temp_sock < 0)	/*	Error de Acceptar	*/
 	{
-		printDonde(">>ERROR: Fallo al aceptar la conexión.\n\n", esDeamon, LOG_ERR);
+		print_Donde(esDeamon, LOG_ERR, ">>ERROR: Fallo al aceptar la conexión.\n\n");
 		return -1;
 	}
 
@@ -276,7 +273,7 @@ int main(int argc, char *argv[])
 		ctrl = listen(sock_srv, 5);
 		if(ctrl < 0)	/*	Error de Listen	*/
 		{
-			printDonde(">>ERROR: Fallo el listen.\n\n", esDeamon, LOG_ERR);
+			print_Donde(esDeamon, LOG_ERR, ">>ERROR: Fallo el listen.\n\n");
 			close(sock_srv);
 			return -1;
 		}
@@ -317,7 +314,7 @@ int main(int argc, char *argv[])
 			ctrl = pipeSetUp(stdin_p, stdout_p, stderr_p);
 			if(ctrl == -1)		/*	Error de pipe	*/
 			{
-				printDonde(">> ERROR: Error al configurar las pipes", esDeamon, LOG_ERR);
+				print_Donde(esDeamon, LOG_ERR, ">> ERROR: Error al configurar las pipes");
 				close(nuevofd);
 				return -1;
 			}
@@ -339,7 +336,7 @@ int main(int argc, char *argv[])
 					ctrl = select( ( stderr_p[1]+1 ) , &readfds, NULL, NULL, NULL );
 					if(ctrl == -1)	/*	Select Error	*/
 					{
-						printDonde("ERROR: En el select.\n", esDeamon, LOG_ERR);
+						print_Donde(esDeamon, LOG_ERR, "ERROR: En el select.\n");
 					}
 
 					if( FD_ISSET(stdout_p[0], &readfds) != 0 )
