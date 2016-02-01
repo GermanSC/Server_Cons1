@@ -9,6 +9,7 @@
  ============================================================================
  */
 
+#include <stdarg.h>
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,16 +19,20 @@
 #include <syslog.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 #define MAX_CMD		20
 #define BUFF_SIZE	100
 
-int print_help(char * str)
+int esDeamon = 0;
+int verb = 0;
+
+int printHelp(char * str)
 {
-printf("\nUso: %s [opciones]\n\n", str);
+	printf("\nUso: %s [opciones]\n\n", str);
 	printf("  -d	Modo daemon.\n"
-		   "  -v	Verbose.\n\n");
+			"  -v	Verbose.\n\n");
 	printf( "El programa servidor atiende conexiones en el puerto TCP 15001 "
 			"esperando conexiones de procesos clientes. El servidor puede "
 			"ejecutarse en modo normal ­en el cual informa a través de la"
@@ -37,81 +42,38 @@ printf("\nUso: %s [opciones]\n\n", str);
 	return 0;
 }
 
-void print_Donde(char * STR, int D_Flag, int PRI)
+void print_Donde(int dflag, int prioridad, const char *formatString, ...)
 {
-	if (D_Flag)
+	va_list arguments;
+	va_start(arguments, formatString);
+
+	if (dflag)
 	{
-		syslog(PRI,"%s",STR);
+		vsyslog(prioridad, formatString, arguments);
 	}
 	else
 	{
-		printf("%s",STR);
+		vprintf(formatString, arguments);
 	}
+
+	va_end(arguments);
 }
 
-int main(int argc, char *argv[])
-{
+int socketSetUp(int port){
+
+	/*	Variables Generales	*/
+	int temp = -1;
 
 
 	/*	Variables de Conexión	*/
-	int		port		=	15001;
-	int		sock_srv, nuevofd;
+	int		sock;
 	struct sockaddr_in	server_sock;
-	struct sockaddr_in	client_info;
-
-	/*	Variables de control	*/
-	pid_t 	child_pid	=	0;
-	int		ctrl		=	0;
-
-	/*	Configuracióon de opciones	*/
-
-	int opt_sig;
-		const char* const opc_cort = "hdv";
-		int esDeamon = 0;
-		int verb 	 = 0;
-
-		do
-		{
-			opt_sig = getopt (argc, argv, opc_cort);
-
-			switch (opt_sig)
-			{
-				case 'h':
-					print_help(argv[0]);
-					return 0;
-					break;
-				case 'd':
-					esDeamon = 1;
-					break;
-				case 'v':
-					verb = 1;
-					break;
-				case '?':
-					print_help(argv[0]);
-					return 0;
-					break;
-
-				case -1:
-					break;
-
-				default:
-					abort();
-			}
-		} while (opt_sig != -1);
-
-	if(esDeamon)
-	{	/*	Configuración del Log	*/
-		openlog("RMT_CMD_Server", LOG_PID, LOG_USER);
-	}
-
-	/* Inicio del Programa */
-	print_Donde("Inicializando... ", esDeamon, LOG_NOTICE);
+	int yes = 1;
 
 	/*	Configuración del Socket	*/
-	sock_srv = socket(PF_INET,SOCK_STREAM,0);
-	if(sock_srv == -1)	/*	Error de socket	*/
+	sock = socket(PF_INET, SOCK_STREAM, 0);
+	if(sock == -1)	/*	Error de socket	*/
 	{
-		print_Donde(">>ERROR: No se pudo abrir el socket.\n\n", esDeamon, LOG_ERR);
 		return -1;
 	}
 
@@ -119,238 +81,327 @@ int main(int argc, char *argv[])
 	server_sock.sin_port		= htons(port);
 	server_sock.sin_addr.s_addr	= 0;
 
-	print_Donde("Listo\n", esDeamon, LOG_NOTICE);
 
-	int yes = 1;
-	setsockopt(sock_srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
-	ctrl = bind(sock_srv, (struct sockaddr *)&server_sock, sizeof(struct sockaddr_in));
-	if(ctrl < 0)	/*	Error de bind	*/
+	temp = bind(sock, (struct sockaddr *)&server_sock, sizeof(struct sockaddr_in));
+	if(temp < 0)	/*	Error de bind	*/
 	{
-		print_Donde(">>ERROR: No se pudo enlazar el socket.\n\n",esDeamon, LOG_ERR);
-		close(sock_srv);
+		close(sock);
 		return -1;
 	}
 
-	ctrl = listen(sock_srv,1);
-	if(ctrl < 0)	/*	Error de Listen	*/
+	return sock;
+}
+
+int acceptConnection(int temp_srv){
+
+	int temp_sock = -1;
+	struct sockaddr_in	client_info;
+	unsigned int client_len = sizeof(struct sockaddr_in);
+	char clientIP[INET6_ADDRSTRLEN];
+
+	temp_sock = accept(temp_srv, (struct sockaddr *)&client_info, &client_len);
+	if(temp_sock < 0)	/*	Error de Acceptar	*/
 	{
-		print_Donde(">>ERROR: Fallo el listen.\n\n", esDeamon, LOG_ERR);
-		close(sock_srv);
+		print_Donde(esDeamon, LOG_ERR, ">>ERROR: Fallo al aceptar la conexión.\n\n");
 		return -1;
 	}
 
-	print_Donde(">Esperando conexiones...\n", esDeamon, LOG_NOTICE);
+	if(!esDeamon)
+	{
+		printf("\n  Nueva conexión desde %s asignada a socket %d\n",
+				inet_ntop(AF_INET, &(client_info.sin_addr), clientIP, INET_ADDRSTRLEN),
+				temp_sock);
+	} else {
+		syslog(LOG_NOTICE,  "\n  Nueva conexión desde %s asignada a socket %d\n"
+				,inet_ntop(AF_INET,&(client_info.sin_addr)
+						, clientIP, INET_ADDRSTRLEN), temp_sock);
+	}
 
-	child_pid = fork();
-	if(child_pid == 0)
-	{	/* Proceso hijo */
-		/*	Acepto al conexión	y cierro el socket de server	*/
-		unsigned int client_len = sizeof(struct sockaddr_in);
-		char clientIP[INET6_ADDRSTRLEN];
+	return temp_sock;
+}
 
-		/*	Comandos a ejecutar	*/
-		char* argls[MAX_CMD] = {"","","","","","","",""};
+int pipeSetUp(int* pipe_in, int* pipe_out,int* pipe_err)
+{
+	int temp = -1;
 
-		nuevofd = accept(sock_srv,(struct sockaddr *)&client_info, &client_len);
-		if(nuevofd<0)	/*	Error de Acceptar	*/
+	temp = pipe(pipe_in);
+	if(temp == -1)	/*	Error de pipe	*/
+	{
+		return -1;
+	}
+
+	temp = pipe(pipe_out);
+
+	if(temp == -1)		/*	Error de pipe	*/
+	{
+		return -1;
+	}
+
+	temp = pipe(pipe_err);
+	if(temp == -1)		/*	Error de pipe	*/
+	{
+		return -1;
+	}
+	return 0;
+}
+
+int runCommand(int* pipe_in, int* pipe_out, int* pipe_err, char ** list)
+{
+	close(pipe_in[1]);
+	close(pipe_out[0]);
+	close(pipe_err[0]);
+
+	dup2(pipe_in[0], STDIN_FILENO);
+	dup2(pipe_out[1], STDOUT_FILENO);
+	dup2(pipe_err[1], STDERR_FILENO);
+
+	execvp(list[0], list);
+	return 0;
+}
+
+void configSelect(fd_set* set, int fd_a, int fd_b, int fd_c)
+{
+	FD_ZERO(set);
+	FD_SET(fd_a, set);
+	FD_SET(fd_b, set);
+	FD_SET(fd_c, set);
+}
+
+int redirect(int input, int output, char * in_string)
+{
+	int temp = 0;
+	static char buff[1024] = "";
+
+	temp = read( input, buff, sizeof(buff) );
+	if (temp != 0)
+	{
+		write(output, buff, temp);
+
+		if( verb == 1 )
 		{
-			print_Donde(">>ERROR: Fallo al aceptar la conexión.\n\n", esDeamon, LOG_ERR);
+			print_Donde(esDeamon, LOG_NOTICE, "%s ",in_string);
+			print_Donde(esDeamon, LOG_NOTICE, "%.*s\n", temp, buff );
+		}
+	}
+
+	if( strcmp(buff, "" ) == 0 )
+	{
+		return -5;
+	}
+	return temp;
+}
+
+void deamonSetUp(int fd1, int fd2, int fd3)
+{
+	setsid();
+	chdir("/");
+	umask(0);
+
+	close(fd1);
+	close(fd2);
+	close(fd3);
+}
+
+int main(int argc, char *argv[])
+{
+	/*	Variables de Conexion	*/
+	int sock_srv, nuevofd;
+
+	/*	Variables de control	*/
+	pid_t d_pid		=	0;
+	pid_t child_pid	=	0;
+	int ctrl		=	0;
+	int tmp_i		=	0;
+
+	/*	Configuracióon de opciones	*/
+
+	int opt_sig;
+	const char* const opc_cort = "hdv";
+
+	/*	Buffers	*/
+
+	char buff[BUFF_SIZE] = "";
+
+	/*	Pipes	*/
+
+	int stdin_p[2];
+	int stdout_p[2];
+	int stderr_p[2];
+
+	/*	Inicio	*/
+
+	do
+	{
+		opt_sig = getopt (argc, argv, opc_cort);
+
+		switch (opt_sig)
+		{
+		case 'h':
+			printHelp(argv[0]);
+			return 0;
+			break;
+		case 'd':
+			esDeamon = 1;
+			break;
+		case 'v':
+			verb = 1;
+			break;
+		case '?':
+			printHelp(argv[0]);
+			return 0;
+			break;
+
+		case -1:
+			break;
+
+		default:
+			abort();
+		}
+	} while (opt_sig != -1);
+
+	/*	Configuración del Deamon	*/
+	if(esDeamon)
+	{
+		d_pid = fork();
+		if(d_pid > 0)
+		{
+			return 0;
+		}
+
+		deamonSetUp(STDIN_FILENO,STDOUT_FILENO,STDERR_FILENO);
+		openlog("RMT_CMD_Server", LOG_PID, LOG_USER);
+	}
+
+	/* Inicio del Programa */
+
+	print_Donde(esDeamon, LOG_NOTICE, ">Esperando conexiones...\n");
+
+	sock_srv = socketSetUp(15001);
+	if(sock_srv < 0)
+	{
+		return -1;
+	}
+
+	while(1)
+	{
+		ctrl = listen(sock_srv, 5);
+		if(ctrl < 0)	/*	Error de Listen	*/
+		{
+			print_Donde(esDeamon, LOG_ERR, ">>ERROR: Fallo el listen.\n\n");
 			close(sock_srv);
 			return -1;
 		}
 
-		close(sock_srv);
-
-		if(!esDeamon){
-		printf("\n  Nueva conexión desde %s asignada a socket %d\n"
-				,inet_ntop(AF_INET,&(client_info.sin_addr)
-				, clientIP, INET_ADDRSTRLEN),nuevofd);
-		}else{
-			syslog(LOG_NOTICE,  "\n  Nueva conexión desde %s asignada a socket %d\n"
-								,inet_ntop(AF_INET,&(client_info.sin_addr)
-								, clientIP, INET_ADDRSTRLEN),nuevofd);
-		}
-
-		print_Donde("  Obteniendo comandos... ", esDeamon, LOG_NOTICE);
-		char buff[BUFF_SIZE] = "";
-
-		ctrl = recv(nuevofd,buff,100,0);
-		printf("%s\n\n", buff);
-
-		/*	Desarmo la cadena obtenido en el comando y sus argumentos.	*/
-		int i = 0;
-		argls[0] = strtok(buff, " ");
-		while (argls[i] != NULL)
-		{
-		    i++;
-		    argls[i] = strtok (NULL, " \n");
-		}
-
-		/*	Señalo la correcta recepción	*/
-		write(nuevofd,"Listo",(strlen("Listo")+1));
-
-		/*	Seteo de pipes	*/
-
-		int stdin_p[2];
-		int stdout_p[2];
-		int stderr_p[2];
-
-		ctrl = pipe(stdin_p);
-		if(ctrl == -1)	/*	Error de pipe	*/
-		{
-			print_Donde(">> ERROR: Error al configurar las pipes", esDeamon, LOG_ERR);
-			close(nuevofd);
-			return -1;
-		}
-		ctrl = pipe(stdout_p);
-		if(ctrl == -1)		/*	Error de pipe	*/
-		{
-			print_Donde(">> ERROR: Error al configurar las pipes", esDeamon, LOG_ERR);
-			close(nuevofd);
-			return -1;
-		}
-		ctrl = pipe(stderr_p);
-		if(ctrl == -1)		/*	Error de pipe	*/
-		{
-			print_Donde(">> ERROR: Error al configurar las pipes", esDeamon, LOG_ERR);
-			close(nuevofd);
-			return -1;
-		}
-
-
 		child_pid = fork();
-		if(child_pid	!=0	)
+		if(child_pid == 0)
 		{
-			close(stdout_p[1]);
-			close(stderr_p[1]);
-			close(stdin_p[0]);
+			/*	Primer hijo	*/
+			char * argls[MAX_CMD] = {NULL};
 
-			char buff[1024] = "";
-
-			/*	Configuro el select	*/
-			fd_set readfds;
-			FD_ZERO(&readfds);
-			FD_SET(nuevofd, &readfds);
-			FD_SET(stdout_p[0], &readfds);
-			FD_SET(stderr_p[0], &readfds);
-
-			while( waitpid(-1,NULL,WNOHANG) != child_pid )
+			nuevofd = acceptConnection(sock_srv);
+			close(sock_srv);
+			if (nuevofd < 0)	/*	Error de Accept	*/
 			{
-				FD_SET(nuevofd, &readfds);
-				FD_SET(stdout_p[0], &readfds);
-				FD_SET(stderr_p[0], &readfds);
-				ctrl = select(11,&readfds,NULL,NULL,NULL);
-				if(ctrl == -1)
-				{
-					print_Donde("ERROR: En el select.\n", esDeamon, LOG_ERR);
-				}
-
-				if(FD_ISSET(stdout_p[0],&readfds))
-				{
-					if(verb != 0)
-					{
-						print_Donde("out: ", esDeamon, LOG_NOTICE);
-					}
-					ctrl = read(stdout_p[0],buff,sizeof buff);
-					if (ctrl != 0)
-					{
-						write(nuevofd,buff,ctrl);
-
-						if(!esDeamon && verb)
-						{
-							printf("%.*s\n",ctrl,buff);
-						}
-						else
-						{
-							syslog(LOG_NOTICE, "%.*s\n",ctrl,buff);
-						}
-					}
-				}
-				if(FD_ISSET(stderr_p[0],&readfds))
-				{
-					ctrl = read(stderr_p[0],buff,sizeof buff);
-					if (ctrl != 0)
-						{
-							write(nuevofd,buff,ctrl);
-							if(verb != 0)
-							{
-								print_Donde("err: ",esDeamon, LOG_NOTICE);
-							}
-							if(!esDeamon && verb)
-							{
-								printf("%.*s\n",ctrl,buff);
-							}
-							else
-							{
-								syslog(LOG_NOTICE, "%.*s\n",ctrl,buff);
-							}
-						}
-				}
-				if(FD_ISSET(nuevofd,&readfds))
-				{
-					ctrl = read(nuevofd, buff, sizeof buff);
-					if(verb != 0)
-					{
-						print_Donde("cliente:", esDeamon, LOG_NOTICE);
-					}
-					if(ctrl == 0)
-					{
-						print_Donde("  Conexión con cliente cerrada.\n",esDeamon, LOG_NOTICE);
-						break;
-					}
-					else
-					{
-						write(stdin_p[1],buff,ctrl);
-
-						if(!esDeamon && verb)
-						{
-							printf("%.*s\n",ctrl,buff);
-						}
-						else
-						{
-							syslog(LOG_NOTICE, "%.*s\n",ctrl,buff);
-						}
-					}
-				}
-
+				print_Donde(esDeamon, LOG_ERR, "Error al aceptar la conexion.\n");
+				return -1;
 			}
-			if( strcmp(buff,"") ==0 )
+
+			print_Donde(esDeamon, LOG_NOTICE, "  Obteniendo comandos... ");
+
+			ctrl = recv(nuevofd, buff, 100, 0);
+			print_Donde(esDeamon, LOG_NOTICE, "%s\n\n", buff);
+
+			/*	Desarmo la cadena obtenido en el comando y sus argumentos.	*/
+
+			argls[0] = strtok( buff, " ");
+			while ( argls[tmp_i] != NULL )
 			{
-				write(nuevofd,"ERROR: Comando inválido.\n",25);
-				print_Donde("  ERROR: Comando inválido.\n",esDeamon, LOG_NOTICE);
+				tmp_i++;
+				argls[tmp_i] = strtok( NULL, " \n" );
 			}
-			print_Donde("  Ejecución de comando finalizada.\n",esDeamon, LOG_NOTICE);
-			close(stdin_p[1]);
-			close(stdout_p[0]);
-			close(stderr_p[0]);
-			close(nuevofd);
-			return 0;
-		}
-		else
-		{	/*	Hijo Comando	*/
-			close(stdin_p[1]);
-			close(stdout_p[0]);
-			close(stderr_p[0]);
-			close(nuevofd);
 
-			dup2(stdin_p[0],STDIN_FILENO);
-			dup2(stdout_p[1],STDOUT_FILENO);
-			dup2(stderr_p[1],STDERR_FILENO);
+			/*	Señalo la correcta recepción	*/
+			write(nuevofd, "Listo", 6 );
 
-			execvp(argls[0],argls);
-			return 0;
+			/*	Seteo de pipes	*/
+
+			ctrl = pipeSetUp(stdin_p, stdout_p, stderr_p);
+			if(ctrl == -1)		/*	Error de pipe	*/
+			{
+				print_Donde(esDeamon, LOG_ERR, ">> ERROR: Error al configurar las pipes");
+				close(nuevofd);
+				return -1;
+			}
+
+			child_pid = fork();
+			if(child_pid != 0 )
+			{
+				close(stdout_p[1]);
+				close(stderr_p[1]);
+				close(stdin_p[0]);
+
+				/*	Configuro el select	*/
+				fd_set readfds;
+
+				while( waitpid(-1, NULL, WNOHANG) != child_pid )
+				{
+					configSelect(&readfds, nuevofd, stdout_p[0], stderr_p[0]);
+
+					ctrl = select( ( stderr_p[1]+1 ) , &readfds, NULL, NULL, NULL );
+					if(ctrl == -1)	/*	Select Error	*/
+					{
+						print_Donde(esDeamon, LOG_ERR, "ERROR: En el select.\n");
+					}
+
+					if( FD_ISSET(stdout_p[0], &readfds) != 0 )
+					{
+						ctrl = redirect(stdout_p[0],nuevofd, "out: ");
+					}
+
+					if( FD_ISSET(stderr_p[0], &readfds) != 0 )
+					{
+						ctrl = redirect(stderr_p[0],nuevofd,"err: ");
+					}
+
+					if( FD_ISSET(nuevofd, &readfds) != 0)
+					{
+						ctrl = redirect(nuevofd,stdin_p[1],"cliente: ");
+						if(ctrl == 0)
+						{
+							print_Donde(esDeamon, LOG_NOTICE, "  Conexión con cliente cerrada.\n");
+							break;
+						}
+					}
+					if (ctrl == -5)
+					{
+						write(nuevofd, "ERROR: Comando inválido.\n", 25);
+						print_Donde(esDeamon, LOG_NOTICE, "  ERROR: Comando inválido.\n");
+					}
+
+				}
+
+				print_Donde(esDeamon, LOG_NOTICE, "  Ejecución de comando finalizada.\n");
+				close(stdin_p[1]);
+				close(stdout_p[0]);
+				close(stderr_p[0]);
+				close(nuevofd);
+				return 0;
+
+			} else {
+				/*	Hijo Comando	*/
+
+				close(nuevofd);
+				runCommand(stdin_p, stdout_p, stderr_p, argls);
+				return 0;
+			}
+
+		} else {
+			/*Proceso Padre */
+			waitpid(child_pid, NULL, 0);
+			print_Donde(esDeamon, LOG_NOTICE, ">Esperando proximo comando.\n");
 		}
 	}
-	else
-	{	/*Proceso Padre */
-		waitpid(child_pid,NULL,0);
-		print_Donde("> Termino el proceso hijo.\n", esDeamon, LOG_NOTICE);
-		if(esDeamon)
-		{
-			closelog();
-		}
-		close(sock_srv);
-		return 0;
-	}
+	return 0;
 }
